@@ -12,7 +12,8 @@ inline string EncodeBase58(const unsigned char* pbegin, const unsigned char* pen
 	string 		str;
 	str.reserve((pend-pbegin)*138/100+1);
 	CBigNum 	dv;
-	CBigNum 	rem;
+	CBigNum 	rem;	
+
 	while (bn>bn0)
 	{
 		if (!BN_div(&dv,&rem,&bn,&bn58,pctx)) 		
@@ -65,4 +66,73 @@ inline bool DecodeBase58(const char* psz, vector<unsigned char>&vchRet)
 	reverse_copy(vchTmp.begin(), vchTmp.end(),vchRet.end() -vchTmp.size());
 	return true;
 }
-	
+inline bool DecodeBase58(const string&str, vector<unsigned char> & vchRet)
+{
+	return DecodeBase58(str.c_str(),vchRet);
+}
+inline string EncodeBase58Check(const vector<unsigned char>&vchIn)
+{
+	vector<unsigned char> vch(vchIn);
+	uint256 hash=Hash(vch.begin(),vch.end());
+	vch.insert(vch.end(),(unsigned char*)&bash, (unsigned char*)&hash+4);
+	return EncodeBase58(vch);
+}
+inline bool DecodeBase58Check(const char* psz, vector<unsigned char>&vchRet)
+{
+	if (!DecodeBase58(psz, vchRet))
+		return false;
+	if (vchRet.size()<4)
+	{
+		vchRet.clear();
+		return false;
+	}
+	uint256 hash=Hash(vchRet.begin(),vchRet.end()-4);
+	if (memcmp(&hash,&vchRet.end()[-4],4)!=0)
+	{
+		vchRet.clear();
+		return false;
+	}
+	vchRet.resize(vchRet.size()-4);
+	return true;
+}
+inline bool DecodeBase58Check(const string& str, vector<unsigned char>& vchRet)
+{
+	return DecodeBase58Check(str.c_str(),vchRet);
+}
+static const unsigned char ADDRESSVERSION=0;
+inline string Hash160ToAddress(unit160 hash160)
+{
+	vector<unsigned char> vch(1, ADDRESSVERSION);
+	vch.insert(vch.end(), UBEGIN(hash160), UEND(hash160));
+	return EncodeBase58Check(vch);
+}
+inline bool AddressToHash160(const char* psz, unit160&hash160Ret)
+{
+	Vector<unsigned char> vch;
+	if (!DecodeBase58Check(psz,vch))
+		return false;
+	if (vch.empty())
+		return false;
+	unsigned char nVersion=vch[0];
+	if (vch.size()!=sizeof(hash160Ret)+1)
+		return false;
+	memcpy(&hash160Ret, &vch[1],sizeof (hash160Ret));
+	return (nVersion<=ADDRESSVERSION);
+}
+inline bool AddressToHash160(const string& str, unit160& hash160Ret)
+{
+	return AddressToHash160(str.c_str(), hash160Ret);
+}
+inline bool IsValidBitcoinAddress(const char* psz)
+{
+	uint160 hash160;
+	return AddressToHash160(psz, hash160);
+}
+inline bool isValidBitcoinAddress(const string&str)
+{
+	return IsValidBitcoinAddress(str.c_str());
+}
+inline string PubKeyToAddress(const vector<unsigned char>& vchPubKey)
+{
+	return Hash160ToAddress(Hash160(vchPubkey));
+}
