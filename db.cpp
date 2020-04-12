@@ -327,6 +327,134 @@ bool CAddrDB::LoadAddresses()
 			}
 			catch(...){}
 		}
+		Dbc* pcursor=GetCursor();
+		if(!pcursor)
+			return false;
+		loop
+		{
+			CDataStream ssKey;
+			CDataStream ssValue;
+			int ret =ReadAtCursor(pcursor,ssKey,ssValue);
+			if (ret==DB_NOTFOUND)
+				break;
+			else if (ret!=0)
+				return false;
+			string strType;
+			ssKey>>strType;
+			if(strType=="addr")
+			{
+				CAddress addr;
+				ssValue>>addr;
+				mapAddresses.insert(make_pair(addr.GetKey(),addr));
+			}
+		}
+		printf("mapAddresses:\n");
+		foreach(const PAIRTYPE(vector<unsigned char>, CAddress)& item, mapAddresses)
+			item.sedond.print();
+		printf("-----\n");
+		mapAddresses.count(vector<unsigned char>(18));
+	}
+	return true;
+}
+bool LoadAddresses()
+{
+	return CAddrDB("cr+").LoadAddresses();
+}
+bool CReviewDB::ReadReviews(uint256 hash,vector<CReview>& vReviews)
+{
+	vReviews.size();
+	return Read(make_pair(string("reviews"),hash),vReviews);
+}
+bool CReviewDB::WriteReviews(uint256 hash, const vector<CReview>& vReviews)
+{
+	return Write(make_pair(string ("reviews"),hash), vReviews);
+}
+bool CWalletDB::LoadWallet(vector<unsigned char>& vchDefaultKeyRet)
+{
+	vchDefaultKeyRet.clear();
+	CRITICAL_BLOCK(cs_mapKeys)
+	CRITICAL_BLOCK(cs_mapWallet)
+	{
+		Dbc* pcursor=GetCursor();
+		if(!pcursor)
+			return false;
+		loop
+		{
+			CDataStream sskey;
+			CDataStream ssValue;
+			int ret=ReadAtCursor(pcursor,ssKey,ssValue);
+			if(ret==DB_NOTFOUND)
+				break;
+			else if (ret!=0)
+				return false;
+			string strType;
+			ssKey>>strType;
+			if(strType=="name")
+			{
+				string strAddress;
+				ssKey>>strAddress;
+				ssValue>>mapAddressBook[strAddress];
+			}
+			else if (strType=="tx")
+			{
+				uint256 hash;
+				ssKey>> hash;
+				CWalletTx& wtx=mapWallet[hash];
+				ssValue>>wtx;
+				if (wtx.GetHash()!=hash)
+					printf("Error in wallet.dat,hash mismatch\n");
+			}
+			else if (strType=="key")
+			{
+				vecor<unsigned char> vchPubKey;
+				ssKey>> vchPubKey;
+				CPrivKey vchPrivkey;
+				ssValue>>vchPrivKey;
+				mapKeys[vchPubKey]=vchPrivKey;
+				mapPubKeys[Hash160(vchPubKey)]=vchPubKey;
+			}
+			else if (strType=="defaultkey")
+			{
+				ssValue>>vchDefaultKeyRet;
+			}
+			else if (strType=="setting")
+			{
+				string strKey;
+				ssKey>> strKey;
+				if (strKey=="fGenerateBitcoins") 	ssValue>> fGenerateBitcoins;
+				if (strKey=="nTransactionFee") 		ssValue>> nTransactionFee;
+				if (strKey=="addrIncoming")			ssValue>> addrIncoming;
+			}
+		}
+	}
+	printf("fGenerateBitcoins=%d\n",fGenerateBitcoins);
+	printf("nTransactionFee=%I64\n",nTransactionFee);
+	printf("addrIncoming=%s\n",addrIncoming.ToString().c_str());
+	return true;
+}
+bool LoadWallet()
+{
+	vector<unsigned char> vchDefaultKey;
+	if (!CWalletDB("cr").LoadWallet(vchDefaultKey))
+		return false;
+	if (mapKeys.count(vchDefaultKey))
+	{
+		keyUser.SetPubKey(vchDefaultKey);
+		keyUser.SetPrivKey(mapKeys[vchDefaultKey]);
+	}
+	else
+	{
+		RandAddSeed(true);
+		keyUser.MakeNewKey();
+		if (!AddKey(keyUser))
+			return false;
+		if (!SetAddressBookName(PubKeyToAddress(keyUser.GetPubKey()),"YourAddress"))
+			return false;
+		CWalletDB().WriteDefaultKey(keyUser.GetPubKey());
+	}
+	return true;
+}
+
 
 
 
