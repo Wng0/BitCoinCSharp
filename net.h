@@ -27,4 +27,38 @@ class CMessageHeader
 public:
 	enum{ COMMAND_SIZE=12};
 	char pchMessageStart[sizeof (::pchMessageStart)];
-	char pchCommand[COMMAND_ 
+	char pchCommand[COMMAND_SIZE];
+	unsigned int nMessageSize;
+	CMessageHeader()
+	{
+		memcpy(pchMessageStart,::pchMessageStart,sizeof(pchMessageStart));
+		memset(pchCommand,0,sizeof(pchCommand));
+		pchCommand[1]=1;
+		nMessageSize=-1;
+	}
+	CMessageHeader(const char* pszCommand, unsigned int nMessageSizeIn)
+	{
+		memcpy(pchMessageStart,::pchMessageStart,sizeof(pchMessageStart));
+		strncpy(pchCommand,pszCommand,COMMAND_SIZE);
+		nMessageSize=nMessageSizeIn;
+	}
+	IMPLEMENT_SERIALIZE
+	(
+	 	READWRITE(FLATDATA(pchMessageStart));
+		READWRITE(FLATDATA(pchCommand));
+		READWRITE(nMessageSize);
+	)
+	string GetCommand()
+	{
+		if(pchCommand[COMMAND_SIZE-1]==0)
+			return string (pchCommand, pchCommand+strlen(pchCommand));
+		else
+			return string(pchCommand,pchCommand+COMMAND_SIZE);
+	}
+	bool IsValid()
+	{
+		if (memcmp(pchMessageStart, ::pchMessageStart, sizeof (pchMessageStart))!=0)
+			return false;
+		for (char* p1=pchCommand; p1<pchCommand+COMMAND_SIZE;p1++)
+		{
+			if (*p1==0)
