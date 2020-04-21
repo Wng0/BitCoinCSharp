@@ -316,7 +316,7 @@ void CNode::Disconnect()
 		if(vfSubscribe[nChannel])
 			CancelSubscribe(nChannel);
 }
-
+void ThreadSocketHandler(void* parg)
 
 
 
