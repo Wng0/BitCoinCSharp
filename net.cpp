@@ -317,8 +317,75 @@ void CNode::Disconnect()
 			CancelSubscribe(nChannel);
 }
 void ThreadSocketHandler(void* parg)
-
-
+{
+	IMPLEMENT_RANDOMIZE_STACK(ThreadSocketHandler(parg));
+	loop
+	{
+		vfThreadRunning[0]=true;
+		CheckForShutdown(0);
+		try
+		{
+			ThreadSocketHandler2(parg);
+		}
+		CATCH_PRINT_EXCEPTION("ThreadSocketHandler()")
+		vfThreadRunning[0]=false;
+		Sleep(5000);
+	}
+}
+void ThreadSocketHandler2(void* parg)
+{
+	printf("ThreadSocketHandler started\n");
+	SOCKET hListenSocket=*(SOCKET*)parg;
+	list<CNode*> vNodesDisconnected;
+	int nPrevNodeCount=0;
+	loop
+	{
+		CRITICAL_BLOCK(cs_vNodes)
+		{
+			vector<CNode*> vNodesCopy=vNodes;
+			foreach(CNode* pnode, vNodesCopy)
+			{
+				if (pnode->ReadyToDisconnect()&& pnode->vRecv.empty()&&pnode->vSend.empty()
+				 {
+					 vNode.erase(remove(vNodes.begin(),vNodes.end(),pnode),vNodes.end());
+					 pnode->Disconnect();
+					 pnode->nReleaseTime=max(pnode->nReleaseTime,GetTime()+5*60);
+					 if (pnode->fNetworkNode)
+						 pnode->Release();
+					vNodesDisconnected.push_back(pnode);
+				 }
+			}
+			list<CNode*> vNodesDisconnectedCopy=vNodesDisconnected;
+			foreach(CNode* pnode, vNodesDisconnectedCopy)
+			{
+				if (pnode->GetRefCount()<=0)
+				{
+					bool fDelete=false;
+					TRY_CRITICAL_BLOCK(pnode->cs_vSend)
+					TRY_CRITICAL_BLOCK(pnode->cs_vRecvd)
+					TRY_CRITICAL_BLOCK(pnode->cs_mapRequests)
+					TRY_CRITICAL_BLOCK(pnode->cs_inventory)
+					fDelete=true;
+					if (fDelete)
+					{
+						vNodesDisconnected.remove(pnode);
+						delete pnode;
+					}
+				}
+			}
+		}
+		if (vNodes.size()!=nPrevNodeCount)
+		{
+			nPrevNodeCount=vNodes.size();
+			MainFrameRepaint();
+		}
+		struct timeval timeout;
+		timeout.tv_sec=0;
+		timeout.tv_usec=50000;
+		struct fd_set fdsetRecv;
+		struct fd_set fdsetSend;
+		FD_ZERO(&fdsetRecv);
+		FD_ZERO
 
 
 
