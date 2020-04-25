@@ -385,7 +385,94 @@ void ThreadSocketHandler2(void* parg)
 		struct fd_set fdsetRecv;
 		struct fd_set fdsetSend;
 		FD_ZERO(&fdsetRecv);
-		FD_ZERO
+		FD_ZERO(&fdsetSend);
+		SOCKET hSocketMax=0;
+		FD_SET(hListenSocket, &fdsetRecv);
+		hSocketMax=max(hSocketMax, hListenSocket);
+		CRITICAL_BLOCK(cs_vNodes)
+		{
+			foreach(CNode* pnode, vNodes)
+			{
+				FD_SET(pnode->hSocket, &fdsetRecv);
+				hSocketMax=max(hSocketMax,pnode->hSocket);
+				TRY_CRITICAL_BLOCK(pnode->cs_vSend)
+				if (!pnode->vSend.empty())
+					FD_SET(pnode->hSocket, &fdsetSend);
+			}
+		}
+		vfThreadRunning[0]=false;
+		int nSelect=select(hSocketMax+1, &fdsetRecv, &fdsetSend, NULL, &timeout);
+		vfThreadRunning[0]=true;
+		CheckForShutdown(0);
+		if (nSelect==SOCKET_ERROR)
+		{
+			int nErr=WSAGetLastError();
+			printf("select failed: %d\n", nErr);
+			for (int i=0;i<=hSocketMax;i++)
+			{
+				FD_SET(i, &fdsetRecv);
+				FD_SET(i, &fdsetSend);
+			}
+			Sleep(timeout.tv_usec/1000);
+		}
+		RandAddSeed();
+		if (FD_ISSET(hListenSocket, &fdsetRecv))
+		{
+			struct sockaddr_in sockaddr;
+			int len=sizeof(sockaddr);
+			SOCKET hSocket=accept(hListenSocket,(struct sockaddr*)&sockaddr,&len);
+			CAddress addr(sockaddr);
+			if(hSocket==INVALID_SOCKET)
+			{
+				if (WSAGetLastError()!=WSAEWOULDBLOCK)
+					printf("ERROR ThreadSocketHandler accept failed: %d\n", WSAGetLastError());
+			}
+			else
+			{
+				printf("accepted connection from %s\n", addr.ToString().c_str());
+				CNode* pnode=new CNode(hSocket, addr, true);
+				pnode->AddRef();
+				CRITICAL_BLOCK(cs_vNodes)
+				vNodes.push_back(pnode);
+			}
+		}
+		vector<CNode*> vNodesCopy;
+		CRITICAL_BLOCK(cs_vNodes)
+		vNodesCopy=vNodes;
+		foreach(CNode* pnode, vNodesCopy)
+		{
+			CheckForShutdown(0);
+			SOCKET hSocket=pnode->hSocket;
+			if (FD_ISSET(hSocket, &fdsetRecv))
+			{
+				TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
+				{
+					CDataStream& vRecv=pnode->vRecv;
+					unsigned int nPos= vRecv.size();
+					const unsigned int nBufSize=0x10000;
+					vRecv.resize(nPos+ nBufSize);
+					int nBytes=recv(hSocket, &vRecv[nPos], nBufSize, 0);
+					vRecv.resize(nPos+max(nBytes, 0));
+					if (nBytes==0)
+					{
+						if (!pnode->fDisconnect)
+							printf("recv: socket closed\n");
+						pnode->fDisconnect=true;
+					}	
+					else if (nBytes<0)
+					{
+						int nErr=WSAGetLastError();
+						if (nErr!=WSAEWOULDBLOCK && nErr != WSAEMSGSIZE && nErr!=WSAEINTR && nErr !=WSAEINPROGRESS)
+						{
+
+						if (!pnode->fDisconnect)
+							printf("recv failed: %d\n", nErr);
+						pnode->fDisconnect=true;
+						}
+					}	
+				}
+			}
+			if (FD_
 
 
 
