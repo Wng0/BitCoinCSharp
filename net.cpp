@@ -472,8 +472,334 @@ void ThreadSocketHandler2(void* parg)
 					}	
 				}
 			}
-			if (FD_
+			if (FD_ISSET(hSocket, &fdsetSend))
+			{
+				TRY_CRITICAL_BLOCK(pnode->cs_vSend)
+				{
+					CDataStream& vSend=pnode->vSend;
+					if (!vSend.empty())
+					{
+						int nBytes=send(hSocket, &vSend[0], vSend.size(), 0);
+						if (nBytes>0)
+						{
+							vSend.erase(vSend.begin(),vSend.begin()+nBytes);
+						}
+						else if (nBytes==0)
+						 {
+							 if (pnode->ReadyToDisconnect())
+								 pnode->vSend.clear();
+						 }
+						 else
+						 {
+							 printf("send error %d\n", nBytes);
+							 if (pnode->ReadyToDisconnect())
+								 pnode->vSend.clear();
+						 }
+					}	
+				}
+			}
+		}
+		Sleep(10);
+	}
+}
+void ThreadOpenConnections(void* parg)
+{
+	IMPLEMENT_RANDOMIZE_STACK(ThreadOpenConnections(parg));
+	loop
+	{
+		vfThreadRunning[1]=true;
+		CheckForShutdown(1);
+		try
+		{
+			ThreadOpenConnections2(parg);
+		}
+		CATCH_PRINT_EXCEPTION("ThreadOpenConnections()")
+		vfThreadRunning[1]=false;
+		Sleep(5000);
+	}
+}
+void ThreadOpenConnections2(void* parg)
+{
+	printf("ThreadOpenConnections started\n");
+	int nTry=0;
+	bool fIRCOnly=false;
+	const int nMaxConnections=15;
+	loop
+	{
+		vfThreadRunning[1]=false;
+		Sleep(500);
+		while (vNodes.size()>=nMaxConnections||vNodes.size()>=mapAddresses.size())
+		{
+			CheckForShutdown(1);
+			Sleep(2000);
+		}
+		vfThreadRunning[1]=true;
+		CheckForShutdown(1);
+		fIRCOnly=!fIRCOnly;
+		if (mapIRCAddresses.empty())
+			fIRCOnly=false;
+		else if (nTry++<30&&vNodes.size()<nMaxConnections/2)
+			fIRCOnly=true;
+		unsigned char pchIPCMask[4]={0xff,0xff,0xff,0x00};
+		unsigned int nIPCMask=*(unsigned int*) pchIPCMask;
+		vector<unsigned int> vIPC;
+		CRITICAL_BLOCK(cs_mapIRCAddresses)
+		CRITICAL_BLOCK(cs_mapAddresses)
+		{
+			vIPC.reserve(mapAddresses.size());
+			unsigned int nPrev=0;
+			foreach (const PAIRTYPE(vector<unsigned char>, CAddress)& item, mapAddresses)
+			{
+				const CAddress& addr=item.second;
+				if (!addr.IsIPv4())
+					continue;
+				if (fIPCOnly && !mapIRCAddresses.count(item.first))
+					continue;
+				unsigned int ipC=addr.ip& nIPCMask;
+				if (ipC!=nPrev)
+					vIPC.push_back(nPrev=ipC);
+			}
+		}
+		if (vIPC.empty())
+			continue;
+		unsigned int ipC=vIPC[GetRand(vIPC.size())];
+		map<unsigned int, vector<CAddress>>mapIP;
+		CRITICAL_BLOCK(cs_mapIRCAddresses)
+		CRITICAL_BLOCK(cs_mapAddresses)
+		{
+			int64 nDelay=((30*60)<<vNodes.size());
+			if (!fIRCOnly)
+			 {
+				 nDelay*=2;
+				 if (vNodes.size()>=3)
+					 nDelay*=4;
+				if (!mapIRCAddresses.empty())
+					nDelay*=100;
+			 }
+			 for (map<vector<unsigned char>, CAddress>::iterator mi=mapAddresses.lower_bound(CAddress(ipC,0).GetKey());
+			 mi!=mapAddresses.upper_bound(CAddress(ipC|~nIPCMask,0xffff).GetKey());
+			 ++mi)
+			 {
+				 const CAddress& addr=(*mi).second;
+				 if (fIRCOnly&& !mapIRCAddresses.count((*mi).first))
+					 continue;
+				int64 nRandomizer=(addr.nLastFailed * addr.ip * 7777U)%20000;
+				if (GetTime()-addr.nLastFailed>nDelay*nRandomizer/10000)
+					mapIP[addr.ip].push_back(addr);
+			 }
+		}
+		if (mapIP.empty())
+			continue;
+		map<unsigned int, vector<CAddress>>::iterator mi=mapIP.begin();
+		advance(mi, GetRand(mapIP.size()));
+		foreach(const CAddress& addrConnect, (*mi).second)
+		{
+			CheckForShutdown(1);
+			if (addrConnect.ip==addrLocalHost.ip||!addrConnect.IsIPv4()||FindNode(addrConnect.ip))
+				continue;
+			vfThreadRunning[1]=false;
+			CNode* pnode=ConnectNode(addrConnect);
+			vfThreadRunning[1]-=true;
+			CheckForShutdown(1);
+			if (!pnode)
+				continue;
+			pnode->fNetworkNode=true;
+			if (addrLocalHost.IsRoutable())
+			{
+				vector<CAddress> vAddrToSend;
+				vAddrToSend.push_back(addrLocalHost);
+				pnode->PushMessage("addr",vAddrToSend);
+			}
+			pnode->PushMessage("getaddr");
+			const unsigned int nHops=0;
+			for (unsigned int nChannel=0; nChannel<pnodeLocalHost->vfSubscribe.size();nChannel++)
+				if (pnodeLocalHost->vfSubscribe[nChannel])
+					pnode->PushMessage("subscribe", nChannel, nHops);
+			break;
+		}
+	}
+}
+void ThreadMessageHandler(void* parg)
+{
+	IMPLEMENT_RANDOMIZE_STACK(ThreadMessageHandler(parg));
+	loop
+	{
+		vfThreadRunning[2]=true;
+		CheckForShutdown(2);
+		try
+		{
+			ThreadMessageHandler2(parg);
+		}
+		CATCH_PRINT_EXCEPTION("ThreadMessageHandler()")
+		vfThreadRunning[2]=false;
+		Sleep(5000);
+	}
+}
+void ThreadMessageHandler2(void* parg)
+{
+	printf("ThreadMessageHandler started\n");
+	SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL);
+	loop
+	{
+		vector<CNode*> vNodesCopy;
+		CRITICAL_BLOCK(cs_vNodes)
+		vNodesCopy=vNodes;
+		foreach(CNode* pnode, vNodesCopy)
+		{
+			pnode->AddRef();
+			TRY_CRITICAL_BLOCK(pnode->cs_vRecv)
+			ProcessMessages(pnode);
+			pnode->Release();
+		}
+		vfThreadRunning[2]=false;
+		Sleep(100);
+		vfThreadRunning[2]=true;
+		CheckForShutdown(2);
+	}
+}
+void ThreadBitcoinMiner(void* parg)
+{
+	vfThreadRunning[3]=true;
+	CheckForShutdown(3);
+	try
+	{
+		bool fRet=BitcoinMiner();
+		printf("BitcoinMiner returned %s\n\n\n", fRet?"true":"false");
+	}
+	CATCH_PRINT_EXCEPTION("BitcoinMiner()")
+	vfThreadRunning[3]=false;
+}
+bool StartNode(string& strError)
+{
+	strError="";
+	WSADATA wsadata;
+	int ret=WSAStartup(MAKEWORK(2,2),&wsadata);
+	if (ret!=NO_ERROR)
+	{
+		strError=strprintf("Error: TCP/IP socket library failed to start (WSAStartup returned error %d)",ret);
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	char pszHostName[255];
+	if (gethostname(pszHostName, 255)==SOCKET_ERROR)
+	{
+		strError=strprintf("Error:Unable to get IP address of this computer(gethostname returned error %d)",WSAGetLastError());
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	struct hostent* phostent=gethostbyname(pszHostName);
+	if (!phostent)
+	{
+		strError=strprintf("Error:Unable to get IP address of this computer(gethostbyname returned error %d)",WSAGetLastError());
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	addrLocalHost=CAddress(*(long*)(phostent->h_addr_list[0]),DEFAULT_PORT,nLocalServices);
+	printf("addLocalHost=%s\n",addrLocalHost.ToString().c_str());
+	SOCKET hListenSocket=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
+	if (hListenSocket==INVALID_SOCKET)
+	{
+		strError=strprintf("Error:Couldn't open socket for incomming connections (socket returned error %d)",WSAGetLastError());
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	u_long nOne=1;
+	if (ioctlsocket(hListenSocket, FIONBIO, &nOne)==SOCKET_ERROR)
+	{
+		strError=strprintf("Error:Couldn't set properties on socket for incomming connections (ioctlsocket returned error %d)",WSAGetLastError());
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	int nRetryLimit=15;
+	struct sockaddr_in sockaddr=addrLocalHost.GetSockAddr();
+	if (bind(hListenSocket, (struct sockaddr*)&sockaddr, sizeof(sockaddr))==SOCKET_ERROR)
+	{
+		int nErr=WSAGetLastError();
+		if (nErr==WSAEADDRINUSE)
+			strError=strprintf("Error: Unable to bind to port %s on this computer. The program is probably already running.", addrLocalHost.ToString().c_str());
+		else
+			strError=strprintf("Error: Unable to bind to port %s on this computer (bind returned error %d)", addrLocalHost.ToString().c_str(),nErr);
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	printf("bound to addrLocalHost=%s\n\n",addrLocalHost.ToString().c_str());
+	if (listen(hListenSocket, SOMAXCONN)==SOCKET_ERROR)
+	{
+		strError=strprintf("Error: Listening for incoming connections failed (listen return error %d)", WSAGetLastError());
+		printf("%s\n",strError.c_str());
+		return false;
+	}
+	if (addrIncoming.ip)
+		addrLocalHost.ip=addrIncoming.ip;
+	if (GetMyExternalIP(addrLocalHost.ip))
+	{
+		addrIncoming=addrLocalHost;
+		CWalletDB().WriteSetting("addrIncoming", addrIncoming);
+	}
+	if (_beginthread(ThreadIRCSeed, 0, NULL)==-1)
+		printf("Error: _beginthread(ThreadIRCSeed) failed\n");
+	if (_beginthread(ThreadSocketHandler, 0, new SOCKET(hListenSocket))==-1)
+	{
+		strError="Error: _beginthread(ThreadSockethHandler) failed";
+		printf("%s\n", strError.c_str());
+		return false;
+	}
+	if (_beginthread(ThreadOpenConnections, 0, NULL)==-1)
+	{
+		strError="Error: _beginthread(ThreadOpenConnections) failed";
+		printf("%s\n", strError.c_str());
+		return false;
+	}
+	if (_beginthread(ThreadMessageHandler, 0, NULL)==-1)
+	{
+		strError="Error: _beginthread(ThreadMessageHandler) failed";
+		printf("%s\n", strError.c_str());
+		return false;
+	}
+	return true;
+}
+bool StopNode()
+{
+	printf("StopNode()\n");
+	fShutdown=true;
+	nTransactionsUpdated++;
+	int64 nStart=GetTime();
+	while (vfThreadRunning[0]||vfThreadRunning[2]||vfThreadRunning[3])
+	{
+		if (GetTime()-nStart>15)
+			break;
+		Sleep(20);
+	}
+	if (vfThreadRunning[0]) printf("ThreadSocketHandler still running\n");
+	if (vfThreadRunning[1]) printf("ThreadOpenConnections still running\n");
+	if (vfThreadRunning[2]) printf("ThreadMessageHandler still running\n");
+	if (vfThreadRunning[3]) printf("ThreadBitcoinMiner still running\n");
+	while (vfThreadRunning[2])
+		Sleep(20);
+	Sleep(50);
+	WSACleanup();
+	return true;
+}
+void CheckForShutdown(int n)
+{
+	if (fShutdown)
+	{
+		if (n!=-1)
+			vfThreadRunning[n]=false;
+		if(n==0)
+			foreach(CNode* pnode, vNodes)
+			closesocket(pnode->hSocket);
+			_endthread();
+	}
+}
 
+
+		
+
+
+
+
+	
 
 
 
