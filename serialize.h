@@ -377,7 +377,175 @@ template<typename Stream, typename K, typename T> void Serialize(Stream& os, con
 	Serialize(os, item.first, nType,nVersion);
 	Serialize(os, item.second, nType,nVersion);
 }
-//538
+template<typename Stream, typename K, typename T> void Unserialize(Stream& is, std::pair<K,T>& item, int nType, int nVersion)
+{
+	Unserialize(is, item.first, nType,nVersion);
+	Unserialize(is, item.second, nType,nVersion);
+}
+template<typename K, typename T, typename Pred, typename A>
+unsigned int GetSerializeSize(const std::map<K,T,Pred,A>& m, int nType, int nVersion)
+{
+	unsigned int nSize=GetSizeOfCompactSize(m.size());
+	for (typename std::map<K,T,Pred,A>::const_iterator mi=m.begin();mi!=m.end();++mi)
+		nSize+=GetSerializeSize((*mi),nType,nVersion);
+	return nSize;
+}
+template<typename Stream, typename K, typename T, typename Pred, typename A>
+unsigned Serialize(Stream& os, const std::map<K,T,Pred,A>& m, int nType, int nVersion)
+{
+	WriteCompactSize(os,m.size());
+	for (typename std::map<K,T,Pred,A>::const_iterator mi=m.begin();mi!=m.end();++mi)
+		Serialize(os, (*mi),nType,nVersion);
+}
+template<typename Stream, typename K, typename T, typename Pred, typename A>
+unsigned Unserialize(Stream& is, std::map<K,T,Pred,A>& m, int nType, int nVersion)
+{
+	m.clear();
+	unsigned int nSize= ReadCompactSize(is);
+	typename std::map<K, T, Pred, A>::iterator mi=m.begin();
+	for (unsigned int i=0; i<nSize; i++)
+	{
+		pair<K,T>item;
+		Unserialize(is, item, nType, nVersion);
+		mi=m.insert(mi,item);
+	}
+}
+template<typename K, typename Pred, typename A>
+unsigned int GetSerializeSize(const std::map<K,Pred,A>& m, int nType, int nVersion)
+{
+	unsigned int nSize=GetSizeOfCompactSize(m.size());
+	for (typename std::set<K,Pred,A>::const_iterator it=m.begin();it!=m.end();++it)
+		nSize+=GetSerializeSize((*it),nType,nVersion);
+	return nSize;
+}
+template<typename Stream, typename K, typename Pred, typename A>
+unsigned Serialize(Stream& os, const std::map<K,Pred,A>& m, int nType, int nVersion)
+{
+	WriteCompactSize(os,m.size());
+	for (typename std::set<K,Pred,A>::const_iterator it=m.begin();it!=m.end();++it)
+		Serialize(os, (*it),nType,nVersion);
+}
+template<typename Stream, typename K, typename Pred, typename A>
+unsigned Unserialize(Stream& is, std::set<K,Pred,A>& m, int nType, int nVersion)
+{
+	m.clear();
+	unsigned int nSize= ReadCompactSize(is);
+	typename std::set<K, Pred, A>::iterator mi=m.begin();
+	for (unsigned int i=0; i< nSize; i++)
+	{
+		K key;
+		Unserialize(is, item, nType, nVersion);
+		it=m.insert(it, key);
+	}
+}
+class CSerActionGetSerializeSize{};
+class CSerActionSerialize{};
+class CSerActionUnserlialize{};
+template <typename Stream, typename T>
+inline unsigned int SerReadWrite(Stream& s, const T& obj, int nType, int nVersion, CSerActionGetSerializeSize ser_action)
+{
+	return::GetSerializeSize(obj, nType, nVersion);
+}
+template <typename Stream, typename T>
+inline unsigned int SerReadWrite(Stream& s, const T& obj, int nType, int nVersion, CSerActionSerialize ser_action)
+{
+	::Serialize(s, obj, nType, nVersion);
+	return 0;
+}
+template <typename Stream, typename T>
+inline unsigned int SerReadWrite(Stream& s, T& obj, int nType, int nVersion, CSerActionUnserialize ser_action)
+{
+	::Unserialize(s, obj, nType, nVersion);
+	return 0;
+}
+struct ser_streamplaceholder
+{
+	int nType;
+	int nVersion;
+};
+template<typename T>
+struct secure_allocator::public std::allocator<T>
+{
+	typedef std::allocator<T> base;
+	typedef typename base::size_type size_type;
+	typedef typename base::defference_type difference_type;
+	typedef typename base::pointer pointer;
+	typedef typename base::const_pointer const_pointer;
+	typedef typename base::reference reference;
+	typedef typename base::const_reference const_reference;
+	typedef typename base::value_type value_type;
+	secure_allocator() throw(){}
+	secure_allocator(const secure_allocator& a) throw():base(a){}
+	~secure_allocator() throw(){}
+	template <typename _Other> struct rebind
+	{
+		typedef secure_allocator<_Other> other;
+	};
+	void deallocate(T* p, std::size_t n)
+	{
+		if (p!=NULL)
+			memset(p,0, sizeof(T)*n);
+		allocator<T>::deallocate(p,n);
+	}
+};
+//696
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
