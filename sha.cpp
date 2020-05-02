@@ -47,4 +47,19 @@ void SHA1::Transform(word32* state, const word32* data)
 	R4(a,b,c,d,e,65); R4(e,a,b,c,d,66); R4(d,e,a,b,c,67); R4(c,d,e,a,b,68); R4(b,c,d,e,a,69);
 	R4(a,b,c,d,e,70); R4(e,a,b,c,d,71); R4(d,e,a,b,c,72); R4(c,d,e,a,b,73); R4(b,c,d,e,a,74);
 	R4(a,b,c,d,e,75); R4(e,a,b,c,d,76); R4(d,e,a,b,c,77); R4(c,d,e,a,b,78); R4(b,c,d,e,a,79);
-			
+	state[0]+=a;
+	state[1]+=b;
+	state[2]+=c;
+	state[3]+=d;
+	state[4]+=e;
+}
+void SHA224::InitState(HashWordType* state)
+{
+	static const word32 s[8]={0xc1059ed8, 0x367cd507, 0x3070dd17,0xf70e5939, 0xffc00b31,0x68581511,0x64f98fa7,0xbefa4fa4};
+	memcpy(state,s,sizeof(s));
+}
+void SHA256::InitState(HashWordType* state)
+{
+
+
+
