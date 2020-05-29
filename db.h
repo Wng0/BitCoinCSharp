@@ -9,7 +9,7 @@ class CUser;
 class CReview;
 class CAddress;
 class CWalletTx;
-extern map<string, string> mapAddressBook;
+extern map<string, string> mapAddressBook; //map是一种二元表
 extern bool fClient;
 extern DbEnv dbenv;
 extern void DBFlush(bool fShutdown);
@@ -18,8 +18,8 @@ class CDB
 protacted:
 	DB* pdb;
 	string strFile;
-	vector<DbTxn*> vTxn;
-	explicit CDB(const char* pszFile, const char* pszMode="r+", bool fTxn=false);
+	vector<DbTxn*> vTxn; //vector 是一种list/array
+	explicit CDB(const char* pszFile, const char* pszMode="r+", bool fTxn=false); //显示 构造函数
 	~CDB() {Close();}
 public:
 	void Close();
@@ -34,18 +34,18 @@ protacted:
 			return false;
 		CDataStream ssKey(SER_DISK);
 		ssKey.reserve(1000);
-		ssKey<<key;
+		ssKey<<key;//位移运算，向左
 		Dbt datKey(&ssKey[0],ssKey.size());
 		Dbt datValue;
 		datValue.set_flags(DB_DBT_MALLOC);
 		int ret=pdb->get(GetTxn(),&datKey,&datValue,0);
-		memset(datKey.get_data(),0,datKey.get_size());
+		memset(datKey.get_data(),0,datKey.get_size()); //内存填充运算。
 		if (datValue.get_data()==NULL)
 			return false;
 		CDataStream ssValue((char*)datValue.get_data(), (char*)datValue.get_data()+datValue.get_size(),SER_DISK);
 		ssValue>>value;
 		memset(datValue.get_data(),0,datValue.get_size());
-		free(datValue.get_data());
+		free(datValue.get_data());//释放内存，原本是由malloc分配的。
 		return(ret==0);
 	}
 	template<typename K, typename T>
