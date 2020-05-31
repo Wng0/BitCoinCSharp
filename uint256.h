@@ -91,7 +91,115 @@ public:
     {
         base_uint a(*this);
         for (int i=0;i<WIDTH; i++)
-            
+            pn[i]=0;
+        int k=shift/32;
+        shift = shift % 32;
+        for (int i=0; i< WIDTH; i++)
+        {
+            if (i+k+1< WIDTH && shift !=0)
+                pn[i+k+1] |=(a.pn[i]>>(32-shift));
+            if (i+k<WIDTH)
+                pn[i+k]|=(a.pn[i]<<shift);                
+        }
+        return *this;            
+    }
+    base_uint& operator>>=(unsigned int shift)
+    {
+        base_uint a(*this);
+        for (int i=0;i<WIDTH; i++)
+            pn[i]=0;
+        int k=shift/32;
+        shift = shift % 32;
+        for (int i=0; i< WIDTH; i++)
+        {
+            if (i-k-1>=0 && shift !=0)
+                pn[i-k-1] |=(a.pn[i]<<(32-shift));
+            if (i-k>=0)
+                pn[i-k] |= (a.pn[i]>>shift);                
+        }
+        return *this;            
+    }
+    base_uint& operator+=(const base_uint& b)
+    {
+        uint64 carry =0;
+        for (int i=0;i<WIDTH;i++)
+        {
+            uint64 n=carry +pn[i]+b.pn[i];
+            pn[i]=n& 0xffffffff;
+            carry=n>>32;            
+        }
+        return *this;
+    }
+    base_uint& operator-=(const base_uint& b)
+    {
+        *this+=-b;
+        return * this;
+    }
+    base_uint& operator+=(uint64 b64)
+    {
+        base_uint b;
+        b=b64;
+        *this+=b;
+        return *this;
+    }
+    base_uint& operator-=(uint64 b64)
+    {
+        base_uint b;
+        b=b64;
+        *this+=-b;
+        return *this;
+    }
+    base_uint& operator++()
+    {
+        int i=0;
+        while (++pn[i]==0&&i<WIDTH-1)
+        {
+            i++;
+        }
+        return *this;        
+    }
+    const base_uint operator++(int)
+    {
+        const base_uint ret=*this;
+        ++(*this);
+        return ret;
+    }
+    base_uint& operator--()
+    {
+        int i=0;
+        while (--pn[i]==-1&&i<WIDTH-1)
+        {
+            i++;
+        }
+        return *this;        
+    }
+    const base_uint operator--(int)
+    {
+        const base_uint ret=*this;
+        --(*this);
+        return ret;
+    }
+    friend inline bool operator<(const base_uint& a, const base_uint& b)
+    {
+        for (int i=base_uint::WIDTH-1;i>=0;i--)
+        {
+            if (a.pn[i]<b.pn[i])
+                return true;
+            else if(a.pn[i]>b.pn[i])
+                return false;            
+        }
+        return false;
+    }
+    friend inline bool operator<=(const base_uint& a, const base_uint& b)
+    {
+        for (int i=base_uint::WIDTH-1;i>=0;i--)
+        {
+            if (a.pn[i]<b.pn[i])
+                return true;
+            else if(a.pn[i]>b.pn[i])
+                return false;            
+        }
+        return false;
     }
 
 }
