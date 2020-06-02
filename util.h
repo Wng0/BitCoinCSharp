@@ -156,4 +156,134 @@ void PrintHex(const T pbegin, const T pend, const char* pszFormat="%s", bool fSp
 }
 inline int OutputDebugStringF(const char* pszFormat, ...)
 #ifdef __WXDEBUG__
-    FILE* fileout=fopen("debug.log","a");237
+    FILE* fileout=fopen("debug.log","a");
+    if (fileout)
+    {
+        va_list arg_ptr;
+        va_start (arg_ptr, pszFormat);
+        vfprintf (fileout, pszFormat, arg_ptr);
+        va_end (arg_ptr);
+        fclose (fileout);        
+    }
+    static CCriticalSection cs_OutputDebugStringF;
+    CRITICAL_BLOCK(cs_OutputDebugStringF)
+    {
+        static char pszBuffer[50000];
+        static char* pend;
+        if(pend==NULL)
+            pend=pszBuffer;
+        va_list arg_ptr;
+        va_start(arg_ptr, pszFormat);
+        int limit=END (pszBuffer)-pend-2;
+        int ret=_vsnprintf(pend, limit, pszFormat, arg_ptr);
+        va_end(arg_ptr);
+        if (ret<0||ret>=limit)
+        {
+            pend=END(pszBuffer)-2;
+            *pend++='\n';
+        }
+        else
+            pend+=ret;
+        *pend='\0';
+        char* p1 = pszBuffer;
+        char* p2;
+        while (p2=strchr(p1,'\n'))
+        {
+            p2++;
+            char c=*p2;
+            *p2='\n';
+            OutputDebugString(p1);
+            *p2=c;
+            p1=p2;            
+        }
+        if (p1!=pszBuffer)
+            memmove(pszBuffer,p1,pend-p1+1);
+        pend-=(p1-pszBuffer);
+        return ret;
+    }
+#endif
+    if(!wxTheApp)
+    {
+        va_list arg_ptr;
+        va_start(arg_ptr, pszFormat);
+        vprintf(pszFormat, arg_ptr);
+        va_end(arg_ptr);
+    }
+    return 0;
+}
+inline void heapchk()
+{
+    if (_heapchk()!=_HEAPOK)
+        DebugBreak();
+}
+#define IMPLEMENT_RANDOMIZE_STACK(ThreadFn)\
+    {\
+        static char nLoops;\
+        if (nLoops<=0)\
+            nLoops=GetRand(50)+1;\
+        if (nLoops-->1)\
+        {\
+            ThreadFn;\
+            return;\
+        }\
+    }
+#define CATCH_PRINT_EXCEPTION(pszFn)\
+    catch (std::exception& e){\
+        PrintException(&e, (pszFn));\
+    }catch(...){\
+        PrintException(NULL, (pszFn));\
+    }
+template<typename T1>
+inline uint256 Hash(const T1 pbegin, const T1 pend)
+{
+    uint256 hash1;
+    SHA256((unsigned char*)&pbegin[0],(pend-pbegin)*sizeof(pbegin[0]),(unsigned char*)&hash1);
+    uint256 hash2;
+    SHA256((unsigned char*)&hash1, sizeof(hash1),(unsigned char*)&hash2);
+    return hash2;
+}
+template<typename T1, typename T2>
+inline uint256 Hash(const T1 pbegin, const T1 pend, const T2 p2begin, const T2 p2end)
+{
+    uint256 hash1;
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    SHA256_Update(&ctx, (unsigned char*)&p1begin[0],(p1end-p1begin)*sizeof(p1begin[0]));
+    SHA256_Update(&ctx, (unsigned char*)&p2begin[0],(p2end-p2begin)*sizeof(p2begin[0]));
+    SHA256_Final((unsigned char*)&hash1, &ctx);
+    uint256 hash2;
+    SHA256((unsigned char*)&hash1, sizeof(hash1),(unsigned char*)&hash2);
+    return hash2;
+}
+template<typename T1, typename T2, typename T3>
+inline uint256 Hash(const T1 pbegin, const T1 pend, const T2 p2begin, const T2 p2end,
+                    const T3 p3begin, const T3 p3end)
+{
+    uint256 hash1;
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    SHA256_Update(&ctx, (unsigned char*)&p1begin[0],(p1end-p1begin)*sizeof(p1begin[0]));
+    SHA256_Update(&ctx, (unsigned char*)&p2begin[0],(p2end-p2begin)*sizeof(p2begin[0]));
+    SHA256_Update(&ctx, (unsigned char*)&p3begin[0],(p3end-p3begin)*sizeof(p3begin[0]));
+    SHA256_Final((unsigned char*)&hash1, &ctx);
+    uint256 hash2;
+    SHA256((unsigned char*)&hash1, sizeof(hash1),(unsigned char*)&hash2);
+    return hash2;
+}
+template<typename T>
+uint256 SerializeHash(const T& obj, int nType=SER_GETHASH,int nVersion=VERSION)
+{
+    CDataStream ss(nType, nVersion);
+    ss.reserve(10000);
+    ss<<obj;
+    return Hash (ss.begin(),ss.end());
+}
+inline uint160 Hash160(const vector<unsigned char>& vch)
+{
+    uint256 hash1;
+    SHA256(&vch[0],vch.size(),(unsigned char*)&hash1);
+    uint160 hash2;
+    RIPEMD160((unsigned char*)&hash1, sizeof (hash1), (unsigned char*)&hash2);
+    return hash2;
+}
+
