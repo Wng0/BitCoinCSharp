@@ -441,8 +441,241 @@ public:
 		printf("%s",ToString().c_str());
 	}
 	bool DisconnectInputs(cTxDB& txdb);
-	bool ConnectInputs(CTxDB& txdb,map<uint256,CTxIndex>& mapTestPool,
-	586
+	bool ConnectInputs(CTxDB& txdb,map<uint256,CTxIndex>& mapTestPool, CDiskTxPos posThisTx, int nHeight, int64& nFees, bool fBlock, bool fMiner, int64 nMinFee=0);
+	bool ClientConnectInputs();
+	bool AcceptTransaction(CTxDB& txdb, bool fCheckInputs=true, bool* pfMissingInputs=NULL);
+	bool AcceptTransaction(bool fCheckInputs=true, bool* pfMissingInputs=NULL)
+	{
+		CTxDB txdb("r");
+		return AcceptTransaction(txdb, fCheckInputs, pfMissingInputs);
+	}
+protected:
+	bool AddToMemoryPool();
+public:
+	bool RemoveFromMemoryPool();
+};
+Class CMerkleTx: public CTransaction
+{
+public:
+	uint256 hashBlock;
+	vector<uint256> vMerkleBranch;
+	int nIndex;
+	mutable bool fMerkleVerified;
+	CMerkleTx()
+	{
+		Init();
+	}
+	CMerkleTx(const CTransaction& txIn):CTransaction(txIn)
+	{
+		Init();
+	}
+	void Init()
+	{
+		hashBlock=0;
+		nIndex=-1;
+		fMerkleVerified=false;
+	}
+	int64 GetCredit() const
+	{
+		if(IsCoinBase() && GetBlocksToMaturity()>0)
+			return 0;
+		return CTransaction::GetCredit();
+	}
+	IMPLEMENT_SERIALIZE
+	(
+		nSerSize+=SerReadWrite(s, *(CTransaction*)this,nType,nVersion, ser_action);
+		nVersion=this->nVersion;
+		READWRITE(hashBlock);
+		READWRITE(vMerkleBranch);
+		READWRITE(nIndex);
+	)
+	int SetMerkleBranch(const CBlock* pblock=NULL);
+	int GetDepthInMainChain() const;
+	bool IsInMainChain() const {return GetDepthInMainChain()>0;}
+	int GetBlocksToMaturity() const;
+	bool AcceptTransaction(CTxDB& txdb, bool fCheckInputs=true);
+	bool AcceptTransaction(){CTxDB txdb("r");return AcceptTransaction(txdb);}
+};
+class CWalletTx:public CMerkleTx
+{
+public:
+	vector<CMerkleTx> vtxPrev;
+	map<string, string> mapValue;
+	vector<pair<string,string>>vOrderForm;
+	unsigned int fTimeReceivedIsTxTime;
+	unsigned int nTimeReceived;
+	char fFromMe;
+	char fSpent;
+	mutable unsigned int nTimeDisplayed;
+	CWalletTx()
+	{
+		Init();
+	}
+	CWalletTx(const CMerkleTx& txIn):CMerkleTx(txIn)
+	{
+		Init();
+	}
+	CWalletTx(const CTransaction& txIn):CMerkleTx(txIn)
+	{
+		Init();
+	}
+	void Init()
+	{
+		fTimeReceivedIsTxTime=false;
+		nTimeReceived=0;
+		fFromMe=false;
+		fSpent=false;
+		nTimeDisplayed=0;
+	}	
+	IMPLEMENT_SERIALIZE
+	(
+		nSerSize+=SerReadWrite(s, *(CMerkleTx*)this,nType,nVersion, ser_action);
+		nVersion=this->nVersion;
+		READWRITE(vtxPrev);
+		READWRITE(mapValue);
+		READWRITE(vOrderForm);
+		READWRITE(fTimeReceivedIsTxTime);
+		READWRITE(nTimeReceived);
+		READWRITE(fFromMe);
+		READWRITE(fSpent);		
+	)
+	bool WriteToDisk()
+	{
+		return CWalletDB().WriteTx(GetHash(),*this);
+	}
+	int64 GetTxTime() const;
+	void AddSupportingTransactions(CTxDB& txdb);
+	bool AcceptWalletTransaction(CTxDB& txdb, bool fCheckInputs=true);
+	bool AcceptWalletTRansaction(){CTxDB txdb("r");return AcceptWalletTransaction(txdb);}
+	void RelayWalletTransaction(CTxDB& txdb);
+	void RelayWalletTransaction(){CTxDB txdb("r"); RelayWalletTransaction(txdb);}
+};
+class CTxIndex
+{
+public:
+	CDiskTxPos pos;
+	vector<CDiskTxpos> vSpent;
+	CTxIndex()
+	{
+		SetNull();
+	}
+	CTxIndex(const CDiskTxPos& posIn, unsigned int nOutputs)
+	{
+		pos=posIn;
+		vSpent.resize(nOutputs);
+	}
+	IMPLEMENT_SERIALIZE
+	(
+		if(!(nType & SER_GETHASH))
+			READWRITE(nVersion);
+		READWRITE(pos);
+		READWRITE(vSpent);
+	)
+	void SetNull()
+	{
+		pos.SetNull();
+		vSpent.clear();
+	}
+	bool IsNull()
+	{
+		return pos.IsNull();
+	}
+	friend bool operator==(const CTxIndex& a, const CTxIndex&b)
+	{
+		if (a.pos!=b.pos||a.vSpent.size()!=b.vSpent.size())
+			return false;
+		for (int i=0;i<a.vSpent.size();i++)
+			if (a.vSpent[i]!=b.vSpent[i])
+				return false;
+		return true;
+	}
+	friend bool operator!=(const CTxIndex& a, const CTxIndex& b)
+	{
+		return !(a==b);
+	}
+};
+class CBlock
+{
+public:
+	int vVersion;
+	uint256 hashPrevBlock;
+	uint256 hashMerkleRoot;
+	unsigned int nTime;
+	unsigned int nBits;
+	unsigned int nNonce;
+	vector<CTransaction> vtx;
+	mutable vector<uint256> vMerkleTree;
+	CBlock()
+	{
+		SetNull();
+	}
+	IMPLEMENT_SERIALIZE
+	(
+		READWRITE(this->nVersion);
+		nVersion=this->nVersion;
+		READWRITE(hashPrevBlock);
+		READWRITE(hashMerkleRoot);
+		READWRITE(nTime);
+		READWRITE(nBits);
+		READWRITE(nNonce);
+		if (!(nType&(SER_GETHASH|SER_BLOCKHEADERONLY)))
+			READWRITE(vtx);
+		else if (fRead)
+			const_cast<CBlock*>(this)->vtx.clear();
+	)
+	void SetNull()
+	{
+		nVersion=1;
+		hashPrevBlock=0;
+		hashMerkleRoot=0;
+		nTime=0;
+		nBits=0;
+		nNonce=0;
+		vtx.clear();
+		vMerkleTree.clear();
+	}
+	bool IsNull() const
+	{
+		return (nBits==0);
+	}
+	uint256 GetHash() const
+	{
+		return Hash(BEGIN(nVersion),END(nNonce));
+	}
+	uint256 BuildMerkleTree() const
+	{
+		vMerkleTree.clear();
+		foreach(const CTransaction& tx, vtx)
+			vMerkleTree.push_back(tx.GetHash());
+		int j=0;
+		for (int nSize=vtx.size();nSize>1;nSize=(nSize+1)/2)
+		{
+			for (int i=0;i<nSize;i+=2)
+			{
+				int i2=min(i+1,nSize-1);
+				vMerkleTree.push_back(Hash(BEGIN(vMerkleTree[j+i], END(vMerkleTree[j+i], BEGIN(vMerkleTree[j+i2]), END(vMerkleTree[j+i2])));
+			}
+			j+=nSize;
+		}
+		vector<uint256> GetMerkleBranch(int nIndex) const
+		{
+			if (vMerkleTree.empty())
+				BuildMerkleTree();
+			vector<uint256> vMerkleBranch;
+			int j=0;
+			for (int nSize=vtx.size(); nSize>1; nSize=(nSize+1)/2)
+			{
+				int i=min(nIndex^1, nSize-1);
+				vMerkleBranch.push_back(vMerkleTree[j+i]);
+				nIndex>>=1;
+				j+= nSize;
+			}
+			return vMerkleBranch;
+		}913	
+			
+		
+	
+	
 
 
 
