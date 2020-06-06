@@ -744,8 +744,239 @@ public:
 	bool CheckBlock() const;
 	bool AcceptBlock();
 };
-1007	
-
+class CBlockIndex
+{
+public:
+	const uint256* phashBlock;
+	CBlockIndex* pprev;
+	CBlockIndex* pnext;
+	unsigned int nFile;
+	unsigned int nBlockPos;
+	int nHeight;
+	int nVersion;
+	uint256 hashMerkleRoot;
+	unsigned int nTime;
+	unsigned int nBits;
+	unsigned int nNonce;
+	CBlockIndex()
+	{
+		phashBlock=NULL;
+		pprev=NULL;
+		pnext=NULL;
+		nFile=0;
+		nBlockPos=0;
+		nHeight=0;
+		nVersion=0;
+		hashMerkleRoot=0;
+		nTime=0;
+		nBits=0;
+		nNonce=0;
+	}
+	CBlockIndex(unsigned int nFileIn, unsigned int nBlockPosIn, CBlock& block)
+	{
+		phashBlock=NULL;
+		pprev=NULL;
+		pnext=NULL;
+		nFile=nFileIn;
+		nBlockPos=nBlockPosIn;
+		nHeight=0;
+		nVersion=block.nVersion;
+		hashMerkleRoot=block.hashMerkleRoot;
+		nTime=block.nTime;
+		nBits=block.nBits;
+		nNonce=block.nNonce;
+	}
+	uint256 GetBlockHash() const
+	{
+		return *phashBlock;
+	}
+	bool IsInMainChain() const
+	{
+		return (pnext || this==pindexBest);
+	}
+	bool EraseBlockFromDisk()
+	{
+		CAutoFile fileout=OpenBlockFile(nFile, nBlockPos, "rb+");
+		if (!fileout)
+			return false;
+		CBlock block;
+		block.SetNull();
+		fileout<<block;
+		return true;
+	}
+	enum { nMedianTimeSpan=11};
+	int64 GetMedianTimePast() const
+	{
+		unsigned int pmedian[nMedianTimeSpan];
+		unsigned int* pbegin=& pmedian[nMedianTimeSpan];
+		unsinged int* pend=&pmedian[nMedianTimeSpan];
+		const CBlockIndex* pindex=this;
+		for (int i=0; i<nMedianTimeSpan && pindex; i++, pindex=pindex->pprev)
+			*(--pbegin)=pindex->nTime;
+		sort (pbegin, pend);
+		return pbegin[(pend-pbegin)/2];
+	}
+	int64 GetMedianTime() const
+	{
+		const CBlockIndex* pindex=this;
+		for (int i=0; i<nMedianTimeSpan/2;i++)
+		{
+			if (!pindex->pnext)
+				return nTime;
+			pindex= pindex->pnext;
+		}
+		return pindex->GetMedianTimePast();
+	}
+	string ToString() const
+	{
+		return strprintf("CBlockIndex(nprev=%08x, pnext= %08x, nFile=%d, nBlockPos=%-6d nHeight=%d, merkle=%s, hashBlock=%s)",
+			pprev, pnext, nFile, nBlockPos, nHeight,
+			hashMerkleRoot.ToString().substr(0,6).c_str();
+			GetBlockHash().ToSTring().substr(0,14).c_str());
+	}
+	void print() const
+	{
+		printf("%s\n", ToString().c_str());
+	}
+};
+class CDiskBlockIndex: public CBlockIndex
+{
+public:
+	uint256 hashPrev;
+	uint256 hashNext;
+	CDiskBlockIndex()
+	{
+		hashPrev=0;
+		hashNext=0;
+	}
+	explicit CDiskBlockIndex(CBlockIndex* pindex):CBlockIndex(*pindex)
+	{
+		hashPrev=(pprev? pprev->GetBlockHash():0);
+		hashNext=(pnext? pnext->GetBlockHash():0);
+	}
+	IMPLEMENT_SERIALIZE
+	(
+		if(!nType & SER_GETHASH))
+			READWRITE(nVersion);
+		READWRITE(hashNext);		
+		READWRITE(nFile);
+		READWRITE(nBlockPos);
+		READWRITE(nHeight);	
+		READWRITE(this->nVersion);
+		READWRITE(hashPrev);
+		READWRITE(hashMerkleRoot);
+		READWRITE(nTime);
+		READWRITE(nBits);
+		READWRITE(nNonce);
+	)
+	uint256 GetBlockHash() const
+	{
+		CBlock block;
+		block.nVersion		=nVersion;
+		block.hashPrevBlock	=hashPrev;
+		block.hashMerkleRoot=hashMerkleRoot;
+		block.nTime			=nTime;
+		block.nBits			=nBits;
+		block.nNonce		=nNonce;
+		return block.GetHash();
+	}
+	string ToString() const
+	{
+		stringstr="CDiskBlockIndex(";
+		str+=CBlockIndex::ToString();
+		str+=strprintf("\n				hashBlock=%s, hashPrev=%s, hashNext=%s)",
+			GetBlockHash().ToString().c_str(),
+			hashPrev.ToString().substr(0,14).c_str(),
+			hashNext.ToString().substr(0,14).c_str());
+		return str;
+	}
+	void print() const
+	{
+		printf("%s\n",ToString().c_str());
+	}
+};
+class CBlockLocator
+{
+protected:
+	vector<uint256> vHave;
+public:
+	CBlockLocator()
+	{
+	}
+	explicit CBlockLocator(const CBlockIndex* pindex)
+	{
+		Set(pindex);
+	}
+	explicit CBlockLocator(uint256 hashBlock)
+	{
+		map<uint256, CBlockIndex*>::iterator mi=mapBlockIndex.find(hashBlock);
+		if (mi!=mapBlockIndex.end())
+			Set((*mi).second);
+	}
+	IMPLEMENT_SERIALIZE
+	(
+		if(!(nType& SER_GETHASH))
+			READWRITE(nVersion);
+		READWRITE(vHave);
+	)
+	void Set(const CBlockIndex* pindex)
+	{
+		vHave.clear();
+		int nStep=1;
+		while (pindex)
+		{
+			vHave.push_back(pindex->GetBlockHash());
+			for (int i=0;pindex&& i<nStep; i++)
+				pindex=pindex->pprev;
+			if (vHave.size()>10)
+				nStep*=2;
+		}
+		vHave.push_back(hashGenesisBlock);
+	}
+	CBlockIndex* GetBlockIndex()
+	{
+		foreach(const uint256& hash, vHave)
+		{
+			map<uint256, CBlockIndex*>::iterator mi= mapBlockIndex.find(hash);
+			if (mi!=mapBlockIndex.end())
+			{
+				CBlockIndex* pindex=(*mi).second;
+				if(pindex->IsInMainChain())
+					return pindex;
+			}
+		}
+		return pindexGenesisBlock;
+	}
+	uint256 GetBlockHash()
+	{
+		foreach(const uint256& hash, vHave)
+		{
+			map<uint256, CBlockIndex*>::iterator mi= mapBlockIndex.fine(hash);
+			if (mi!=mapBlockIndex.end())
+			{
+				CBlockIndex* pindex=(*mi).second;
+				if(pindex->IsInMainChain())
+					return hash;
+			}
+		}
+		return hashGenesisBlock;
+	}
+	int GetHeight()
+	{
+		CBlockIndex* pindex=GetBlockIndex();
+		if (!pindex)
+			return 0;
+		return pindex->nHeight;
+	}
+};
+extern map<uint256, CTransaction> mapTransactions;
+extern map<uint256, CWalletTx> maWallet;
+extern vector<pair<uint256, bool>>vWalletUpdated;
+extern CCriticalSection cs_mapWallet;
+extern map<vector<unsigned char>, CPrivKey> mapKeys;
+extern map<uint160, vector<unsigned char> > mapPubKeys;
+extern CCriticalSection cs_mapKeys;
+extern CKey keyUser;
 
 
 
