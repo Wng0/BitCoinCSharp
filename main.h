@@ -657,25 +657,94 @@ public:
 			}
 			j+=nSize;
 		}
-		vector<uint256> GetMerkleBranch(int nIndex) const
+		return (vMerkleTree.empty()?0:vMerkleTree.back());
+	}
+	vector<uint256> GetMerkleBranch(int nIndex) const
+	{
+		if (vMerkleTree.empty())
+			BuildMerkleTree();
+		vector<uint256> vMerkleBranch;
+		int j=0;
+		for (int nSize=vtx.size(); nSize>1; nSize=(nSize+1)/2)
 		{
-			if (vMerkleTree.empty())
-				BuildMerkleTree();
-			vector<uint256> vMerkleBranch;
-			int j=0;
-			for (int nSize=vtx.size(); nSize>1; nSize=(nSize+1)/2)
-			{
-				int i=min(nIndex^1, nSize-1);
-				vMerkleBranch.push_back(vMerkleTree[j+i]);
-				nIndex>>=1;
-				j+= nSize;
-			}
-			return vMerkleBranch;
-		}913	
-			
-		
-	
-	
+			int i=min(nIndex^1, nSize-1);
+			vMerkleBranch.push_back(vMerkleTree[j+i]);
+			nIndex>>=1;
+			j+= nSize;
+		}
+		return vMerkleBranch;
+	}
+	static uint256 CheckMerkleBranch(uint256 hash, const vector<uint256>& vMerkleBranch, int nIndex)
+	{
+		if (nIndex==-1)
+			return 0;
+		foreach(const uint256& otherside, vMerkleBranch)
+		{
+			if (nIndex & 1)
+				hash=Hash(BEGIN(otherside), END(otherside), BEGIN(hash), END(hash));
+			else
+				hash =Hash(BEGIN(hash), END(hash), BEGIN(otherside), END(otherside));
+			nIndex>>=1;
+		}
+		return hash;
+	}
+	bool WriteToDisk(bool fWriteTransaction, unsigned int& nFileRet, unsigned int& nBlockPosRet)
+	{
+		CAutoFile fileout=AppendBlockFile(nFileRet);
+		if (!fileout)
+			return error("CBlock::WriteToDisk():AppendBlockFile failed");
+		if (!fWriteTransactions)
+			fileout.nType|=SER_BLOCKHEADERONLY;
+		unsigned int nSize=fileout.GetSerializeSize(*this);
+		fileout<<FLATDATA(pchMessageStart)<<nSize;
+		nBlockPosRet=ftell(fileout);
+		if (nBlockPosRet==-1)
+			return error("CBlock::WriteToDisk():ftell failed");
+		fileout<<*this;
+		return true;
+	}
+	bool ReadFromDisk(unsigned int nFile, unsigned int nBlockPos, bool fReadTransactions)
+	{
+		SetNull();
+		CAutoFile filein=OpenBlockFile(nFile, nBlockPos, "rb");
+		if (!filein)
+			return error("CBlock::ReadFromDisk():OpenBlockFile failed");
+		if (!fReadTransactions)
+			filein.nType|=SER_BLOCKHEADERONLY;
+		filein>>*this;
+		if (CBigNum().SetCompact(nBits)>bnProofOfWorkLimit)
+			return error ("CBlock::ReadFromDisk():nBits errors in block header");
+		if (GetHash()>CBigNum().SetCompact(nBits).getuint256())
+			return error ("CBlock::ReadFromDisk():GetHash() errors in block headers");
+		return true;
+	}
+	void print() const
+	{
+		printf("CBlock(hash=%s, ver=%d, hashPrevBlock=%s, hashMerkleRoot=%s, nTime=%u, nBits=%08x, nNonce=%u, vtx=%d)\n",
+			GetHash().ToString().substr(0,14).c_str(),
+			nVersion,
+			hashPrevBlock.ToString().substr(0,14).c_str(),
+			hashMerkleRoot.ToString().substr(0,6).c_str(),
+			nTime, nBits, nNonce, vtx.size());
+		for (int i=0;i<vtx.size();i++)
+		{
+			printf("  ");
+			vtx[i].print();
+		}
+		printf("  vMerkleTree: ");
+		for (int i=0;i<vMerleTree.size(); i++)
+			printf ("%s", vMerkleTree[i].ToString().substr(0,6).c_str());
+		printf("\n");
+	}
+	int64 GetBlockValue (int64 nFees) const;
+	bool DisconnectBlock(CTxDB& txdb, CBlockIndex* pindex);
+	bool ConnectBlock(CTxDB& txdb, CBlockIndex* pindex);
+	bool ReadFromDisk(const CBlockIndex* blockindex, bool fReadTransactions);
+	bool AddToBlockIndex(unsigned int nFile, unsigned int nBlockPos);
+	bool CheckBlock() const;
+	bool AcceptBlock();
+};
+1007	
 
 
 
